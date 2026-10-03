@@ -47,9 +47,25 @@
 
 TTFT 表示从请求开始到第一个 generated token 出现的时间，但不能直接视为纯 Prefill latency。TPOT 表示第一个 token 之后，后续 token 的平均生成间隔。`TTFT + 63 × TPOT` 与总 latency 基本一致，说明当前 token-level 计时逻辑是自洽的。
 
+## Experiment 4: Input Length vs TTFT/TPOT
+
+实验目的：研究 input length 对 TTFT、TPOT 和 end-to-end latency 的影响。
+
+实验设置：使用 `Qwen/Qwen2.5-0.5B-Instruct`，input length 分别为 64、128、256 和 512 tokens，固定生成 64 tokens；每组 warm-up 1 次，正式运行 3 次。
+
+| Input length (tokens) | Average TTFT (s) | Average TPOT (s/token) | Average latency (s) |
+| ---: | ---: | ---: | ---: |
+| 64 | 0.0894 | 0.0487 | 3.1592 |
+| 128 | 0.1314 | 0.0485 | 3.1895 |
+| 256 | 0.1922 | 0.0498 | 3.3268 |
+| 512 | 0.3502 | 0.0501 | 3.5058 |
+
+随 input length 增大，TTFT 明显增加，说明长 prompt 会显著增加请求首次响应时间，但 TTFT 不能直接等同于纯 Prefill latency。TPOT 只轻微增加，当前范围内 Decode 每 token 的速度相对稳定；更长 context 会带来更大的 KV Cache 和更长的 attention context，因此 TPOT 仍可能受到影响，但不应过度解读 CPU 上的小幅差异。固定输出 64 tokens 后，总 latency 仍主要由 sequential Decode 时间构成。
+
 ## TODO
 
 - [x] 开展 input length 实验
 - [x] 开展 output length 实验
 - [x] 开展 TTFT 和 TPOT 实验
+- [x] 开展 input length 对 TTFT/TPOT 影响实验
 - [ ] 开展 concurrency 实验
