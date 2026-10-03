@@ -62,10 +62,22 @@ TTFT 表示从请求开始到第一个 generated token 出现的时间，但不�
 
 随 input length 增大，TTFT 明显增加，说明长 prompt 会显著增加请求首次响应时间，但 TTFT 不能直接等同于纯 Prefill latency。TPOT 只轻微增加，当前范围内 Decode 每 token 的速度相对稳定；更长 context 会带来更大的 KV Cache 和更长的 attention context，因此 TPOT 仍可能受到影响，但不应过度解读 CPU 上的小幅差异。固定输出 64 tokens 后，总 latency 仍主要由 sequential Decode 时间构成。
 
+## Experiment 5: Transformers GPU Baseline
+
+实验环境：Google Colab，NVIDIA Tesla T4，PyTorch `2.11.0+cu130`，Transformers `5.17.0`。模型为 `Qwen/Qwen2.5-0.5B-Instruct`，运行在 `cuda:0`，使用 `torch.float16`；prompt length 为 128 tokens，固定生成 64 tokens，warm-up 3 次，正式运行 10 次。
+
+| Metric | Average | Median |
+| --- | ---: | ---: |
+| Latency (s) | 2.1597 | 2.0850 |
+| Throughput (tokens/s) | 29.82 | 30.70 |
+
+Median 对偶发慢 run 不敏感，可以减小异常波动对典型性能判断的影响，因此与 average 一起报告。CPU 与 GPU 实验的硬件、运行环境和 dtype 不同，不应对两者的性能差异做过度解读或直接归因。
+
 ## TODO
 
 - [x] 开展 input length 实验
 - [x] 开展 output length 实验
 - [x] 开展 TTFT 和 TPOT 实验
 - [x] 开展 input length 对 TTFT/TPOT 影响实验
+- [x] 完成 Transformers GPU baseline
 - [ ] 开展 concurrency 实验
