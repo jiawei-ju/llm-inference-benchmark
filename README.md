@@ -32,8 +32,24 @@
 
 随着 output length 增大，end-to-end latency 近似线性增加，因为 autoregressive decode 需要执行更多 sequential decode steps。Throughput 整体保持在约 19–21 tokens/s，没有随 output length 明显下降。较长输出中固定的 Prefill 开销被更多生成 token 摊薄，但当前只有 3 次 CPU 测试，不应对 throughput 的小幅变化做过度解释。
 
+## Experiment 3: TTFT and TPOT
+
+实验目的：分别观察首次生成延迟和后续 token 生成速度。
+
+实验设置：使用 `Qwen/Qwen2.5-0.5B-Instruct`，prompt length 为 128 tokens，generated tokens 为 64；warm-up 1 次，正式运行 3 次。
+
+| Run | TTFT (s) | TPOT (s/token) | Latency (s) |
+| ---: | ---: | ---: | ---: |
+| 1 | 0.1107 | 0.0445 | 2.9132 |
+| 2 | 0.1169 | 0.0447 | 2.9304 |
+| 3 | 0.1171 | 0.0444 | 2.9171 |
+| **Average** | **0.1149** | **0.0445** | **2.9202** |
+
+TTFT 表示从请求开始到第一个 generated token 出现的时间，但不能直接视为纯 Prefill latency。TPOT 表示第一个 token 之后，后续 token 的平均生成间隔。`TTFT + 63 × TPOT` 与总 latency 基本一致，说明当前 token-level 计时逻辑是自洽的。
+
 ## TODO
 
 - [x] 开展 input length 实验
 - [x] 开展 output length 实验
+- [x] 开展 TTFT 和 TPOT 实验
 - [ ] 开展 concurrency 实验
