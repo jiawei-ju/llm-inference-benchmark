@@ -64,14 +64,25 @@ TTFT 表示从请求开始到第一个 generated token 出现的时间，但不�
 
 ## Experiment 5: Transformers GPU Baseline
 
-实验环境：Google Colab，NVIDIA Tesla T4，PyTorch `2.11.0+cu130`，Transformers `5.17.0`。模型为 `Qwen/Qwen2.5-0.5B-Instruct`，运行在 `cuda:0`，使用 `torch.float16`；prompt length 为 128 tokens，固定生成 64 tokens，warm-up 3 次，正式运行 10 次。
+实验环境：Google Colab，NVIDIA Tesla T4，PyTorch `2.13.0+cu130`，Transformers `5.17.0`。模型为 `Qwen/Qwen2.5-0.5B-Instruct`，运行在 `cuda:0`，使用 `torch.float16`；prompt length 为 128 tokens，固定生成 64 tokens，warm-up 3 次，正式运行 10 次。
 
 | Metric | Average | Median |
 | --- | ---: | ---: |
-| Latency (s) | 2.1597 | 2.0850 |
-| Throughput (tokens/s) | 29.82 | 30.70 |
+| Latency (s) | 2.2891 | 2.2063 |
+| Throughput (tokens/s) | 28.09 | 29.01 |
 
 Median 对偶发慢 run 不敏感，可以减小异常波动对典型性能判断的影响，因此与 average 一起报告。CPU 与 GPU 实验的硬件、运行环境和 dtype 不同，不应对两者的性能差异做过度解读或直接归因。
+
+## Transformers vs vLLM: Single-request GPU Baseline
+
+实验环境：Google Colab，NVIDIA Tesla T4，PyTorch `2.13.0+cu130`，Transformers `5.17.0`，vLLM `0.30.0`。两组测试均使用 `Qwen/Qwen2.5-0.5B-Instruct` 和 FP16，input length 为 128 tokens，output length 为 64 tokens，concurrency 为 1；warm-up 3 次，正式运行 10 次。vLLM 在 T4 上使用 `TRITON_ATTN` backend，而不是 FlashAttention 2。
+
+| Backend | Average latency (s) | Median latency (s) | Average throughput (tokens/s) | Median throughput (tokens/s) |
+| --- | ---: | ---: | ---: | ---: |
+| Transformers | 2.2891 | 2.2063 | 28.09 | 29.01 |
+| vLLM | 0.3677 | 0.3676 | 174.08 | 174.11 |
+
+在这组相同 GPU、模型、input/output length 和 concurrency=1 的 workload 下，vLLM 显示出明显更低的 latency 和更高的 output-token throughput；该结果只描述当前实验条件，不代表 vLLM 在所有 workload 下都保持固定倍数的优势。表中数据是 warm-up 后的 steady-state 请求性能，vLLM 首次启动时的 engine initialization、compilation 和 CUDA graph capture 等冷启动开销未计入请求 latency。当前结果也仅代表 single-request performance，不代表高并发 serving 表现。
 
 ## TODO
 
