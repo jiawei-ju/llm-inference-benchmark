@@ -1,4 +1,5 @@
 import time
+from statistics import median
 
 import torch
 import transformers
@@ -8,7 +9,8 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 MODEL_NAME = "Qwen/Qwen2.5-0.5B-Instruct"
 TARGET_PROMPT_TOKENS = 128
 GENERATED_TOKENS = 64
-NUM_RUNS = 5
+NUM_WARMUP_RUNS = 3
+NUM_RUNS = 10
 BASE_PROMPT = (
     "Explain how efficient language model inference helps interactive applications. "
     "Discuss latency, throughput, batching, and hardware utilization in clear English. "
@@ -57,7 +59,7 @@ def main() -> None:
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_NAME,
-        torch_dtype=torch.float16,
+        dtype=torch.float16,
     )
     model.to(device)
     model.eval()
@@ -73,13 +75,14 @@ def main() -> None:
     throughputs = []
 
     with torch.inference_mode():
-        # Warm up once, then wait until all warm-up CUDA work has completed.
-        model.generate(
-            **inputs,
-            min_new_tokens=GENERATED_TOKENS,
-            max_new_tokens=GENERATED_TOKENS,
-        )
-        torch.cuda.synchronize(device)
+        # Run three warm-ups and wait for CUDA work after every generation.
+        for _ in range(NUM_WARMUP_RUNS):
+            model.generate(
+                **inputs,
+                min_new_tokens=GENERATED_TOKENS,
+                max_new_tokens=GENERATED_TOKENS,
+            )
+            torch.cuda.synchronize(device)
 
         # Synchronize around each generate call for accurate GPU wall-clock timing.
         for run_number in range(1, NUM_RUNS + 1):
@@ -104,11 +107,15 @@ def main() -> None:
                 f"throughput={throughput:.2f} tokens/s"
             )
 
-    # Report arithmetic means across the measured runs.
+    # Report arithmetic means and medians across the measured runs.
     average_latency = sum(latencies) / len(latencies)
     average_throughput = sum(throughputs) / len(throughputs)
+    median_latency = median(latencies)
+    median_throughput = median(throughputs)
     print(f"Average latency: {average_latency:.4f}s")
     print(f"Average throughput: {average_throughput:.2f} tokens/s")
+    print(f"Median latency: {median_latency:.4f}s")
+    print(f"Median throughput: {median_throughput:.2f} tokens/s")
 
 
 if __name__ == "__main__":
