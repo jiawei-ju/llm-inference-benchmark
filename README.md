@@ -84,6 +84,31 @@ Median 对偶发慢 run 不敏感，可以减小异常波动对典型性能判�
 
 在这组相同 GPU、模型、input/output length 和 concurrency=1 的 workload 下，vLLM 显示出明显更低的 latency 和更高的 output-token throughput；该结果只描述当前实验条件，不代表 vLLM 在所有 workload 下都保持固定倍数的优势。表中数据是 warm-up 后的 steady-state 请求性能，vLLM 首次启动时的 engine initialization、compilation 和 CUDA graph capture 等冷启动开销未计入请求 latency。当前结果也仅代表 single-request performance，不代表高并发 serving 表现。
 
+## vLLM Online Serving Concurrency Benchmark
+
+本实验通过 vLLM OpenAI-compatible server 和 `vllm bench serve` 测量 online serving 的并发性能。此前的 single-request offline benchmark 直接调用 `LLM.generate`，测量单请求推理性能；本实验包含在线服务及客户端请求/响应路径，报告整组请求的 aggregate throughput 和每个请求的延迟。两次实验的 vLLM 版本也不同，因此不应将数值差异直接归因于并发变化。
+
+实验环境：NVIDIA Tesla T4，PyTorch `2.13.0+cu130`，Transformers `5.17.0`，vLLM `0.31.0`，模型为 `Qwen/Qwen2.5-0.5B-Instruct`，使用 FP16。固定 input length = 128 tokens、output length = 64 tokens，concurrency 分别为 1、2、4、8；每组 warm-up 8 个请求，正式测量 100 个请求，prefix caching disabled。请求速率设为 `inf`，持续填满当前并发上限。
+
+数据来自本次实验的 [summary.csv](results/vllm_online/t4_run_01/results/vllm_online/t4_run_01/summary.csv)，并与同目录下四组 `concurrency_*.json` 核对一致。每组均完成 100 个请求、失败 0 个，实际输入/输出长度均为 128/64 tokens。当前结果目录存在一层重复的 `results/vllm_online/t4_run_01`，以下链接使用仓库中的实际路径。
+
+| Concurrency | Request throughput (req/s) | Output throughput (tok/s) | Mean TTFT (ms) | Mean TPOT (ms/token) | Mean E2EL (ms) |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 2.556 | 163.58 | 27.45 | 5.766 | 390.73 |
+| 2 | 5.106 | 326.78 | 43.20 | 5.524 | 391.22 |
+| 4 | 9.624 | 615.93 | 49.73 | 5.799 | 415.05 |
+| 8 | 15.841 | 1013.80 | 82.93 | 6.425 | 487.69 |
+
+Output throughput 是所有请求合计的输出 token 速率。TTFT 为首 token 延迟，TPOT 为后续 token 的平均生成时间；E2EL 为客户端实际发出请求到接收完整响应的时间，不包含客户端等待并发信号量的排队时间。服务初始化、编译及 warm-up 不计入正式测量。
+
+![Concurrency vs output throughput](results/vllm_online/t4_run_01/results/vllm_online/t4_run_01/concurrency_vs_output_throughput.png)
+
+![Concurrency vs latency](results/vllm_online/t4_run_01/results/vllm_online/t4_run_01/concurrency_vs_latency.png)
+
+Concurrency 从 1 提高到 2 时，output throughput 从 163.58 增至 326.78 tok/s，几乎翻倍，而 mean E2EL 从 390.73 变为 391.22 ms，基本不变；不过 mean TTFT 已从 27.45 升至 43.20 ms。继续提高到 4、8 时，aggregate throughput 继续增长，但 TTFT 和 E2EL 均进一步上升。Concurrency=8 时，output throughput 约为 **1013.8 tok/s**，mean TTFT 为 82.93 ms，mean E2EL 为 487.69 ms，体现了 throughput–latency trade-off：更高并发提高整体处理能力，也增加单个请求的响应延迟。
+
+这些结果反映 vLLM 整体 serving stack 的表现，不能将性能提升单独归因于 PagedAttention。Continuous batching、scheduler、KV cache management、optimized kernels 等共同影响并发服务性能；PagedAttention 与高并发下的 KV cache 管理密切相关，通过分页管理减少内存浪费并支持更多并发请求。本实验没有逐项关闭这些机制进行对照，因此无法量化各机制的独立贡献。
+
 ## TODO
 
 - [x] 开展 input length 实验
@@ -91,4 +116,4 @@ Median 对偶发慢 run 不敏感，可以减小异常波动对典型性能判�
 - [x] 开展 TTFT 和 TPOT 实验
 - [x] 开展 input length 对 TTFT/TPOT 影响实验
 - [x] 完成 Transformers GPU baseline
-- [ ] 开展 concurrency 实验
+- [x] 开展 concurrency 实验
