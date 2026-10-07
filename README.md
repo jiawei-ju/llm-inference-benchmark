@@ -90,7 +90,7 @@ Median 对偶发慢 run 不敏感，可以减小异常波动对典型性能判�
 
 实验环境：NVIDIA Tesla T4，PyTorch `2.13.0+cu130`，Transformers `5.17.0`，vLLM `0.31.0`，模型为 `Qwen/Qwen2.5-0.5B-Instruct`，使用 FP16。固定 input length = 128 tokens、output length = 64 tokens，concurrency 分别为 1、2、4、8；每组 warm-up 8 个请求，正式测量 100 个请求，prefix caching disabled。请求速率设为 `inf`，持续填满当前并发上限。
 
-数据来自本次实验的 [summary.csv](results/vllm_online/t4_run_01/results/vllm_online/t4_run_01/summary.csv)，并与同目录下四组 `concurrency_*.json` 核对一致。每组均完成 100 个请求、失败 0 个，实际输入/输出长度均为 128/64 tokens。当前结果目录存在一层重复的 `results/vllm_online/t4_run_01`，以下链接使用仓库中的实际路径。
+数据来自本次实验的 [summary.csv](results/vllm_online/t4_run_01/summary.csv)，并与同目录下四组 `concurrency_*.json` 核对一致。每组均完成 100 个请求、失败 0 个，实际输入/输出长度均为 128/64 tokens。
 
 | Concurrency | Request throughput (req/s) | Output throughput (tok/s) | Mean TTFT (ms) | Mean TPOT (ms/token) | Mean E2EL (ms) |
 | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -101,13 +101,41 @@ Median 对偶发慢 run 不敏感，可以减小异常波动对典型性能判�
 
 Output throughput 是所有请求合计的输出 token 速率。TTFT 为首 token 延迟，TPOT 为后续 token 的平均生成时间；E2EL 为客户端实际发出请求到接收完整响应的时间，不包含客户端等待并发信号量的排队时间。服务初始化、编译及 warm-up 不计入正式测量。
 
-![Concurrency vs output throughput](results/vllm_online/t4_run_01/results/vllm_online/t4_run_01/concurrency_vs_output_throughput.png)
+![Concurrency vs output throughput](results/vllm_online/t4_run_01/concurrency_vs_output_throughput.png)
 
-![Concurrency vs latency](results/vllm_online/t4_run_01/results/vllm_online/t4_run_01/concurrency_vs_latency.png)
+![Concurrency vs latency](results/vllm_online/t4_run_01/concurrency_vs_latency.png)
 
 Concurrency 从 1 提高到 2 时，output throughput 从 163.58 增至 326.78 tok/s，几乎翻倍，而 mean E2EL 从 390.73 变为 391.22 ms，基本不变；不过 mean TTFT 已从 27.45 升至 43.20 ms。继续提高到 4、8 时，aggregate throughput 继续增长，但 TTFT 和 E2EL 均进一步上升。Concurrency=8 时，output throughput 约为 **1013.8 tok/s**，mean TTFT 为 82.93 ms，mean E2EL 为 487.69 ms，体现了 throughput–latency trade-off：更高并发提高整体处理能力，也增加单个请求的响应延迟。
 
 这些结果反映 vLLM 整体 serving stack 的表现，不能将性能提升单独归因于 PagedAttention。Continuous batching、scheduler、KV cache management、optimized kernels 等共同影响并发服务性能；PagedAttention 与高并发下的 KV cache 管理密切相关，通过分页管理减少内存浪费并支持更多并发请求。本实验没有逐项关闭这些机制进行对照，因此无法量化各机制的独立贡献。
+
+## vLLM Input Length × Concurrency Benchmark
+
+实验环境：NVIDIA Tesla T4，PyTorch `2.13.0+cu130`，Transformers `5.17.0`，vLLM `0.31.0`，模型为 `Qwen/Qwen2.5-0.5B-Instruct`，FP16。Input length 为 128/512/1024 tokens，concurrency 为 1/4/8，output length 固定为 64 tokens；每组 warm-up 8 个请求、正式请求 100 个，prefix caching disabled。同一 server 实例完成九组，固定 `max-model-len=2048`、`max-num-seqs=8`、`max-num-batched-tokens=2048`；随机数据使用 seed=0、random-range-ratio=0、random-prefix-len=0、ignore-eos、temperature=0、request-rate=inf。
+
+以下结果读取自 [summary.csv](results/vllm_online_input_concurrency/t4_run_01/summary.csv)，每组 completed=100、failed=0。运行和校验流程见 [实验文档](docs/vllm_online_input_concurrency.md)。
+
+| Input length (tokens) | Concurrency | Request throughput (req/s) | Output throughput (tok/s) | Mean TTFT (ms) | Mean TPOT (ms/token) | Mean E2EL (ms) |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 128 | 1 | 2.464 | 157.67 | 37.22 | 5.842 | 405.26 |
+| 128 | 4 | 9.237 | 591.14 | 65.08 | 5.831 | 432.43 |
+| 128 | 8 | 15.410 | 986.27 | 88.75 | 6.542 | 500.90 |
+| 512 | 1 | 2.223 | 142.28 | 56.90 | 6.226 | 449.15 |
+| 512 | 4 | 6.870 | 439.69 | 148.94 | 6.867 | 581.55 |
+| 512 | 8 | 9.711 | 621.51 | 253.42 | 8.672 | 799.74 |
+| 1024 | 1 | 1.866 | 119.43 | 132.20 | 6.395 | 535.11 |
+| 1024 | 4 | 4.393 | 281.15 | 353.46 | 8.830 | 909.76 |
+| 1024 | 8 | 5.376 | 344.06 | 614.95 | 13.269 | 1450.90 |
+
+![Input length and concurrency vs output throughput](results/vllm_online_input_concurrency/t4_run_01/figures/concurrency_vs_output_throughput.png)
+
+![Input length and concurrency vs TTFT](results/vllm_online_input_concurrency/t4_run_01/figures/concurrency_vs_ttft.png)
+
+![Input length and concurrency vs E2EL](results/vllm_online_input_concurrency/t4_run_01/figures/concurrency_vs_e2el.png)
+
+固定 input length 比较 concurrency：从 1 增至 8 时，128/512/1024 tokens 的 output throughput 分别提高约 **6.26/4.37/2.88 倍**；context 越长，并发带来的收益越弱。固定 concurrency 比较 input length：输入从 128 增至 1024 时，concurrency=1 的 mean E2EL 从 405.26 增至 535.11 ms，而 concurrency=8 从 500.90 增至 1450.90 ms，mean TTFT 也从 88.75 增至 614.95 ms，显示 input length 与 concurrency 存在明显交互。
+
+Concurrency=1 时 TPOT 在 5.842–6.395 ms/token 范围内，较稳定；长 context 与高 concurrency 组合下明显上升，1024 tokens、concurrency=8 时达到 13.269 ms/token。这些现象与更高的 prefill cost、KV-cache footprint、attention memory traffic 和 serving resource pressure 一致，但这只是机制解释的假设，当前 benchmark 不能把性能变化单独归因于其中某一个因素，也不能单独归因于 PagedAttention。需要 profiling 和对照实验才能区分各机制的贡献。
 
 ## TODO
 
@@ -117,3 +145,28 @@ Concurrency 从 1 提高到 2 时，output throughput 从 163.58 增至 326.78 t
 - [x] 开展 input length 对 TTFT/TPOT 影响实验
 - [x] 完成 Transformers GPU baseline
 - [x] 开展 concurrency 实验
+- [x] 开展 input length × concurrency 实验
+
+## What I Learned
+
+- Benchmark 需要固定 workload 和环境、预热、重复测量，并核验实际 token 数；GPU 计时还需正确同步。
+- Offline 测试直接测量推理调用，online 测试覆盖请求、服务和响应路径，两者不能直接混用。
+- TTFT 衡量首次响应，TPOT 衡量后续 token 的平均生成时间，E2EL 衡量完整响应延迟，throughput 衡量单位时间完成的请求或 tokens；TTFT 不等于纯 prefill 时间。
+- Concurrency 是同时在途的请求数，batch size 是一次计算处理的样本或序列数；continuous batching 下两者不必相等。
+- 提高并发体现 throughput–latency trade-off，context length 会改变并发扩展性。
+- KV cache 保存 attention 所需的历史状态，PagedAttention 与其分页管理密切相关；serving 性能还取决于 continuous batching、scheduling 和 kernels。
+
+## Limitations
+
+- 只测试单一模型 `Qwen/Qwen2.5-0.5B-Instruct` 和单张 NVIDIA Tesla T4，输出固定为 64 tokens，在线 workload 使用随机输入。
+- 当前二维实验只有一轮，每组仅 100 requests，缺少重复实验和置信区间，P99 稳定性有限。
+- CPU/GPU、offline/online 实验的软件版本、硬件或调度配置不同，不能直接将跨实验差异归因于某一机制。
+- 当前为饱和负载，E2EL 不包含客户端等待并发信号量的时间；没有使用 profiler 或机制消融，无法拆分 scheduler、KV cache、kernel 等机制的独立贡献。
+
+## Next Steps
+
+- 重复完整九组实验并轮换执行顺序，验证稳定性，报告波动和尾延迟。
+- 开展 GPU profiling，分析计算、内存访问和调度瓶颈。
+- 扩展到更长 context、更大模型和真实 prompts。
+- 继续研究 KV cache、continuous batching 和 scheduling，并进行配置对照。
+- 选择具体 inference optimization 工作，尝试复现其方法与性能结果。
