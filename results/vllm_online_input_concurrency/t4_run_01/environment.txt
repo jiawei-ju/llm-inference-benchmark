@@ -1,0 +1,19 @@
+Environment scope: local benchmark client; represents server only when colocated in the same Colab/T4 software environment
+GPU: Tesla T4
+PyTorch: 2.13.0+cu130
+Transformers: 5.17.0
+vLLM: 0.31.0
+Model: Qwen/Qwen2.5-0.5B-Instruct
+Base URL: http://127.0.0.1:8000
+Input lengths: 128,512,1024
+Concurrency: 1,4,8
+Output: 64
+Warm-ups: 8
+Requests: 100
+Seed: 0
+Request rate: inf
+Server configuration: see companion document and server.log
+Server model and max-model-len=2048: API verified via /v1/models
+Server dtype=float16: 由启动命令保证 (not API verified)
+Server prefix caching disabled: 由启动命令保证 (not API verified)
+Scheduler/KV cache settings and uninterrupted server identity: 由启动命令及运行流程保证 (not API verified)
